@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { GoogleGenAI, GenerateContentResponse, LiveServerMessage, Modality } from "@google/genai";
+import { GoogleGenAI, LiveServerMessage, Modality } from "@google/genai";
 import { CABIN_DETAILS, FUZZY_SYSTEM_INSTRUCTION } from './constants';
 import { Message, SessionStatus } from './types';
 import InfoCard from './components/InfoCard';
@@ -12,7 +12,7 @@ const App: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'fuzzy',
-      text: "Fuzzy v2.3 Online. I'm connected to the Fuzzy Bear Cabin guides and ready to help. How is your stay going?",
+      text: "Fuzzy v2.5 Online. I'm connected to the Fuzzy Bear Cabin guides and ready to help. How is your stay going?",
       timestamp: new Date()
     }
   ]);
@@ -22,9 +22,11 @@ const App: React.FC = () => {
   const [isVerifying, setIsVerifying] = useState(false);
   const [sessionStatus, setSessionStatus] = useState<SessionStatus>(SessionStatus.IDLE);
   
-  const getApiKey = () => {
-    return (import.meta as any).env?.VITE_API_KEY || (globalThis as any).process?.env?.API_KEY || "";
-  };
+  useEffect(() => {
+    // During build, 'process.env.API_KEY' is replaced by the actual string from Vercel
+    const key = process.env.API_KEY;
+    setEnvKeyExists(!!key && key.length > 5);
+  }, []);
 
   const audioContextInRef = useRef<AudioContext | null>(null);
   const audioContextOutRef = useRef<AudioContext | null>(null);
@@ -41,31 +43,28 @@ const App: React.FC = () => {
   const currentOutputTranscription = useRef('');
 
   useEffect(() => {
-    const key = getApiKey();
-    setEnvKeyExists(!!key && key.length > 10);
-  }, []);
-
-  useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, isTyping, sessionStatus]);
 
   const verifyConnection = async () => {
-    const apiKey = getApiKey();
+    const apiKey = process.env.API_KEY;
     if (!apiKey) {
-       alert("API Key is missing. Please add 'API_KEY' to your Vercel Environment Variables.");
+       alert("API Key is missing in the build. Please ensure 'API_KEY' is set in Vercel Environment Variables and trigger a NEW DEPLOY.");
        return;
     }
     setIsVerifying(true);
     try {
       const ai = new GoogleGenAI({ apiKey });
-      await ai.models.generateContent({
+      const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: 'test',
-        config: { maxOutputTokens: 1 }
+        contents: 'hi',
+        config: { maxOutputTokens: 5 }
       });
-      alert("✅ Connection Successful! Fuzzy's brain is active.");
+      if (response.text) {
+        alert("✅ Connection Successful! Fuzzy's brain is active.");
+      }
     } catch (e: any) {
       alert(`❌ Connection Failed: ${e.message}`);
     } finally {
@@ -74,7 +73,7 @@ const App: React.FC = () => {
   };
 
   const startVoiceSession = async () => {
-    const apiKey = getApiKey();
+    const apiKey = process.env.API_KEY;
     if (!apiKey) {
       alert("Voice requires an API Key.");
       return;
@@ -185,9 +184,9 @@ const App: React.FC = () => {
     if (e) e.preventDefault();
     if (!inputValue.trim() || isTyping) return;
 
-    const apiKey = getApiKey();
+    const apiKey = process.env.API_KEY;
     if (!apiKey) {
-      setMessages(prev => [...prev, { role: 'fuzzy', text: "⚠️ Config Required: API_KEY is missing in Vercel.", timestamp: new Date() }]);
+      setMessages(prev => [...prev, { role: 'fuzzy', text: "⚠️ Config Required: API_KEY is missing in the build.", timestamp: new Date() }]);
       return;
     }
 
@@ -248,7 +247,7 @@ const App: React.FC = () => {
             <div className="bg-orange-800 text-white w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg transform -rotate-2"><i className="fa-solid fa-paw text-xl"></i></div>
             <div>
               <h1 className="text-2xl font-black text-gray-900 tracking-tight leading-none flex items-center gap-3">
-                Fuzzy v2.3
+                Fuzzy v2.5
                 <span className={`text-[9px] px-2 py-0.5 rounded-full border ${envKeyExists ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200 animate-pulse'}`}>
                   {envKeyExists ? 'Brain: Active' : 'Brain: Missing'}
                 </span>
