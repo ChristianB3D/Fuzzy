@@ -22,7 +22,10 @@ const App: React.FC = () => {
   const [isVerifying, setIsVerifying] = useState(false);
   const [sessionStatus, setSessionStatus] = useState<SessionStatus>(SessionStatus.IDLE);
   
-  // Audio & Session Refs
+  const getApiKey = () => {
+    return (import.meta as any).env?.VITE_API_KEY || (globalThis as any).process?.env?.API_KEY || "";
+  };
+
   const audioContextInRef = useRef<AudioContext | null>(null);
   const audioContextOutRef = useRef<AudioContext | null>(null);
   const nextStartTimeRef = useRef<number>(0);
@@ -31,18 +34,15 @@ const App: React.FC = () => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
 
-  // Analysers for Visualizer
   const inputAnalyserRef = useRef<AnalyserNode | null>(null);
   const outputAnalyserRef = useRef<AnalyserNode | null>(null);
 
-  // Transcription Buffers
   const currentInputTranscription = useRef('');
   const currentOutputTranscription = useRef('');
 
   useEffect(() => {
-    // Check for API key in environment
-    const key = process.env.API_KEY || (window as any).process?.env?.API_KEY;
-    setEnvKeyExists(!!key && key !== 'undefined' && key.length > 10);
+    const key = getApiKey();
+    setEnvKeyExists(!!key && key.length > 10);
   }, []);
 
   useEffect(() => {
@@ -52,7 +52,7 @@ const App: React.FC = () => {
   }, [messages, isTyping, sessionStatus]);
 
   const verifyConnection = async () => {
-    const apiKey = process.env.API_KEY || (window as any).process?.env?.API_KEY;
+    const apiKey = getApiKey();
     if (!apiKey) {
        alert("API Key is missing. Please add 'API_KEY' to your Vercel Environment Variables.");
        return;
@@ -65,18 +65,18 @@ const App: React.FC = () => {
         contents: 'test',
         config: { maxOutputTokens: 1 }
       });
-      alert("✅ Connection Successful! Fuzzy's brain is active and responding.");
+      alert("✅ Connection Successful! Fuzzy's brain is active.");
     } catch (e: any) {
-      alert(`❌ Connection Failed: ${e.message}\n\nCheck your Vercel Settings and ensure the key is correctly pasted.`);
+      alert(`❌ Connection Failed: ${e.message}`);
     } finally {
       setIsVerifying(false);
     }
   };
 
   const startVoiceSession = async () => {
-    const apiKey = process.env.API_KEY || (window as any).process?.env?.API_KEY;
-    if (!apiKey || apiKey === 'undefined') {
-      alert("Voice requires an API Key. Please add 'API_KEY' to Vercel.");
+    const apiKey = getApiKey();
+    if (!apiKey) {
+      alert("Voice requires an API Key.");
       return;
     }
 
@@ -140,7 +140,7 @@ const App: React.FC = () => {
               currentOutputTranscription.current = '';
             }
 
-            const audioBase64 = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
+            const audioBase64 = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
             if (audioBase64 && audioContextOutRef.current) {
               const ctx = audioContextOutRef.current;
               const rawData = decode(audioBase64);
@@ -185,9 +185,9 @@ const App: React.FC = () => {
     if (e) e.preventDefault();
     if (!inputValue.trim() || isTyping) return;
 
-    const apiKey = process.env.API_KEY || (window as any).process?.env?.API_KEY;
+    const apiKey = getApiKey();
     if (!apiKey) {
-      setMessages(prev => [...prev, { role: 'fuzzy', text: "⚠️ Config Required: My brain is offline because the API_KEY is missing in Vercel.", timestamp: new Date() }]);
+      setMessages(prev => [...prev, { role: 'fuzzy', text: "⚠️ Config Required: API_KEY is missing in Vercel.", timestamp: new Date() }]);
       return;
     }
 
@@ -213,7 +213,7 @@ const App: React.FC = () => {
         });
       }
 
-      const text = response.text || "I found the info, but had trouble phrasing it. Please check the Guide Link!";
+      const text = response.text || "I found the info, but had trouble phrasing it.";
       const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks?.map((c: any) => ({
         uri: c.web?.uri || c.maps?.uri,
         title: c.web?.title || c.maps?.title || "Search Result"
@@ -221,7 +221,7 @@ const App: React.FC = () => {
 
       setMessages(prev => [...prev, { role: 'fuzzy', text, timestamp: new Date(), sources }]);
     } catch (error: any) {
-      setMessages(prev => [...prev, { role: 'fuzzy', text: `Error: ${error.message}. Please verify the API Key.`, timestamp: new Date() }]);
+      setMessages(prev => [...prev, { role: 'fuzzy', text: `Error: ${error.message}`, timestamp: new Date() }]);
     } finally {
       setIsTyping(false);
     }
@@ -230,7 +230,6 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-[#fdfaf6] h-screen overflow-hidden text-slate-900">
       
-      {/* VOICE OVERLAY */}
       {sessionStatus !== SessionStatus.IDLE && (
         <div className="fixed inset-0 z-[60] bg-white/98 backdrop-blur-3xl flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-300">
           <div className="w-40 h-40 bg-orange-800 text-white rounded-[3.5rem] flex items-center justify-center mb-10 relative shadow-2xl">
@@ -292,7 +291,7 @@ const App: React.FC = () => {
               type="text" 
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
-              placeholder={envKeyExists ? "Ask Fuzzy anything..." : "⚠️ API KEY MISSING - SEE SIDEBAR"}
+              placeholder={envKeyExists ? "Ask Fuzzy anything..." : "⚠️ API KEY MISSING"}
               className={`flex-1 bg-slate-50 border-2 rounded-[2rem] px-8 py-5 focus:outline-none focus:border-orange-600 focus:bg-white font-semibold transition-all shadow-inner ${!envKeyExists ? 'border-red-200 placeholder-red-400' : 'border-slate-100'}`}
               disabled={isTyping}
             />
