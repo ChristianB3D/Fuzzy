@@ -12,16 +12,17 @@ const App: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'fuzzy',
-      text: "Fuzzy System v2.1 Ready. I'm connected to the cabin guides. How can I help you today?",
+      text: "Fuzzy v2.3 Online. I'm ready to assist with your stay at the Fuzzy Bear Cabin. How can I help?",
       timestamp: new Date()
     }
   ]);
   const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [envKeyExists, setEnvKeyExists] = useState<boolean>(false);
+  const [isVerifying, setIsVerifying] = useState(false);
   const [sessionStatus, setSessionStatus] = useState<SessionStatus>(SessionStatus.IDLE);
   
-  // Audio Refs
+  // Audio & Session Refs
   const audioContextInRef = useRef<AudioContext | null>(null);
   const audioContextOutRef = useRef<AudioContext | null>(null);
   const nextStartTimeRef = useRef<number>(0);
@@ -30,7 +31,7 @@ const App: React.FC = () => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
 
-  // Analysers
+  // Analysers for Visualizer
   const inputAnalyserRef = useRef<AnalyserNode | null>(null);
   const outputAnalyserRef = useRef<AnalyserNode | null>(null);
 
@@ -39,9 +40,8 @@ const App: React.FC = () => {
   const currentOutputTranscription = useRef('');
 
   useEffect(() => {
-    const key = process.env.API_KEY;
-    const isValid = !!key && key !== 'undefined' && key.length > 5;
-    setEnvKeyExists(isValid);
+    const key = process.env.API_KEY || (window as any).process?.env?.API_KEY;
+    setEnvKeyExists(!!key && key !== 'undefined' && key.length > 10);
   }, []);
 
   useEffect(() => {
@@ -50,16 +50,36 @@ const App: React.FC = () => {
     }
   }, [messages, isTyping, sessionStatus]);
 
+  // Quick API Verification Test
+  const verifyConnection = async () => {
+    const apiKey = process.env.API_KEY || (window as any).process?.env?.API_KEY;
+    if (!apiKey) return;
+    setIsVerifying(true);
+    try {
+      const ai = new GoogleGenAI({ apiKey });
+      await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: 'hi',
+        config: { maxOutputTokens: 1 }
+      });
+      alert("✅ Connection Successful! Fuzzy's brain is working perfectly.");
+    } catch (e: any) {
+      alert(`❌ Connection Failed: ${e.message}\n\nPlease check your Vercel API_KEY settings.`);
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
   const startVoiceSession = async () => {
-    if (!envKeyExists) {
-      alert("API Key is missing from Vercel environment variables.");
+    const apiKey = process.env.API_KEY || (window as any).process?.env?.API_KEY;
+    if (!apiKey || apiKey === 'undefined') {
+      alert("Missing API Key. Please add 'API_KEY' to your Vercel Environment Variables.");
       return;
     }
 
     try {
       setSessionStatus(SessionStatus.CONNECTING);
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
-      
+      const ai = new GoogleGenAI({ apiKey });
       const inCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
       const outCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
       
@@ -70,7 +90,6 @@ const App: React.FC = () => {
       await outCtx.resume();
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
       inputAnalyserRef.current = inCtx.createAnalyser();
       outputAnalyserRef.current = outCtx.createAnalyser();
       
@@ -81,7 +100,7 @@ const App: React.FC = () => {
           speechConfig: {
             voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Puck' } }
           },
-          systemInstruction: FUZZY_SYSTEM_INSTRUCTION + "\nYou are in voice mode. Keep answers extremely short.",
+          systemInstruction: FUZZY_SYSTEM_INSTRUCTION + "\nVOICE MODE: Keep answers under 20 words.",
           inputAudioTranscription: {},
           outputAudioTranscription: {}
         },
@@ -101,25 +120,23 @@ const App: React.FC = () => {
             processor.connect(inCtx.destination);
           },
           onmessage: async (message: LiveServerMessage) => {
-            if (message.serverContent?.inputTranscription) {
-              currentInputTranscription.current += message.serverContent.inputTranscription.text;
-            }
-            if (message.serverContent?.outputTranscription) {
-              currentOutputTranscription.current += message.serverContent.outputTranscription.text;
-            }
+            if (message.serverContent?.inputTranscription) currentInputTranscription.current += message.serverContent.inputTranscription.text;
+            if (message.serverContent?.outputTranscription) currentOutputTranscription.current += message.serverContent.outputTranscription.text;
+            
             if (message.serverContent?.turnComplete) {
-              const uTxt = currentInputTranscription.current;
-              const fTxt = currentOutputTranscription.current;
-              if (uTxt || fTxt) {
+              const u = currentInputTranscription.current;
+              const f = currentOutputTranscription.current;
+              if (u || f) {
                 setMessages(prev => [
                   ...prev,
-                  ...(uTxt ? [{ role: 'user' as const, text: uTxt, timestamp: new Date() }] : []),
-                  ...(fTxt ? [{ role: 'fuzzy' as const, text: fTxt, timestamp: new Date() }] : [])
+                  ...(u ? [{ role: 'user' as const, text: u, timestamp: new Date() }] : []),
+                  ...(f ? [{ role: 'fuzzy' as const, text: f, timestamp: new Date() }] : [])
                 ]);
               }
               currentInputTranscription.current = '';
               currentOutputTranscription.current = '';
             }
+
             const audioBase64 = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
             if (audioBase64 && audioContextOutRef.current) {
               const ctx = audioContextOutRef.current;
@@ -137,15 +154,12 @@ const App: React.FC = () => {
             }
           },
           onclose: () => stopVoiceSession(),
-          onerror: (e) => {
-            console.error("Fuzzy Voice Error:", e);
-            stopVoiceSession();
-          }
+          onerror: () => stopVoiceSession()
         }
       });
       sessionPromiseRef.current = sessionPromise;
     } catch (err) {
-      console.error("Voice Initialization Failed:", err);
+      console.error(err);
       setSessionStatus(SessionStatus.IDLE);
     }
   };
@@ -154,7 +168,6 @@ const App: React.FC = () => {
     if (sessionPromiseRef.current) {
       const session = await sessionPromiseRef.current;
       try { session.close(); } catch(e) {}
-      sessionPromiseRef.current = null;
     }
     activeSourcesRef.current.forEach(s => { try { s.stop(); } catch(e) {} });
     activeSourcesRef.current.clear();
@@ -162,18 +175,16 @@ const App: React.FC = () => {
     if (audioContextInRef.current) audioContextInRef.current.close();
     if (audioContextOutRef.current) audioContextOutRef.current.close();
     setSessionStatus(SessionStatus.IDLE);
+    sessionPromiseRef.current = null;
   };
 
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!inputValue.trim() || isTyping) return;
 
-    if (!envKeyExists) {
-      setMessages(prev => [...prev, { 
-        role: 'fuzzy', 
-        text: "⚠️ CONFIG ERROR: I can't find my API Key. Please check your Vercel Environment Variables and redeploy.", 
-        timestamp: new Date() 
-      }]);
+    const apiKey = process.env.API_KEY || (window as any).process?.env?.API_KEY;
+    if (!apiKey) {
+      setMessages(prev => [...prev, { role: 'fuzzy', text: "⚠️ Setup Required: Please add your API_KEY to Vercel and redeploy.", timestamp: new Date() }]);
       return;
     }
 
@@ -183,22 +194,15 @@ const App: React.FC = () => {
     setIsTyping(true);
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
+      const ai = new GoogleGenAI({ apiKey });
       let response;
-      
       try {
-        // Attempt 1: With Google Search
         response = await ai.models.generateContent({
           model: 'gemini-3-flash-preview',
           contents: [{ role: 'user', parts: [{ text: userMessage.text }] }],
-          config: { 
-            systemInstruction: FUZZY_SYSTEM_INSTRUCTION,
-            tools: [{googleSearch: {}}]
-          }
+          config: { systemInstruction: FUZZY_SYSTEM_INSTRUCTION, tools: [{googleSearch: {}}] }
         });
-      } catch (toolError) {
-        console.warn("Search tool failed, falling back to core knowledge...", toolError);
-        // Fallback: Pure text generation
+      } catch {
         response = await ai.models.generateContent({
           model: 'gemini-3-flash-preview',
           contents: [{ role: 'user', parts: [{ text: userMessage.text }] }],
@@ -206,20 +210,15 @@ const App: React.FC = () => {
         });
       }
 
-      const text = response.text || "I found some info but had trouble speaking it. See the guide below.";
+      const text = response.text || "I found the info, but I'm having trouble phrasing it. Please check the Guide Link in the sidebar.";
       const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks?.map((c: any) => ({
         uri: c.web?.uri || c.maps?.uri,
-        title: c.web?.title || c.maps?.title || "Reference"
+        title: c.web?.title || c.maps?.title || "Search Result"
       })).filter((s: any) => s.uri) || [];
 
       setMessages(prev => [...prev, { role: 'fuzzy', text, timestamp: new Date(), sources }]);
     } catch (error: any) {
-      console.error("API Detailed Error:", error);
-      setMessages(prev => [...prev, { 
-        role: 'fuzzy', 
-        text: `🔧 TECHNICAL ERROR: "${error.message}". Status Code: ${error.status || 'N/A'}. This usually means the API Key is invalid or billing isn't set up.`, 
-        timestamp: new Date() 
-      }]);
+      setMessages(prev => [...prev, { role: 'fuzzy', text: `Error: ${error.message}. Please verify your API Key.`, timestamp: new Date() }]);
     } finally {
       setIsTyping(false);
     }
@@ -247,9 +246,9 @@ const App: React.FC = () => {
             <div className="bg-orange-800 text-white w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg transform -rotate-2"><i className="fa-solid fa-paw text-xl"></i></div>
             <div>
               <h1 className="text-2xl font-black text-gray-900 tracking-tight leading-none flex items-center gap-3">
-                Fuzzy v2.1
+                Fuzzy v2.3
                 <span className={`text-[9px] px-2 py-0.5 rounded-full border ${envKeyExists ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200 animate-pulse'}`}>
-                  {envKeyExists ? 'Brain: Active' : 'Brain: Missing Key'}
+                  {envKeyExists ? 'Brain: Connected' : 'Brain: Offline'}
                 </span>
               </h1>
               <p className="text-[10px] font-black text-orange-700/60 uppercase tracking-widest mt-1.5">Arnold Cabin Concierge</p>
@@ -276,12 +275,12 @@ const App: React.FC = () => {
                   </div>
                 )}
               </div>
-              <div className="flex items-center gap-2 mt-3 px-3">
-                <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">{msg.role} • {msg.timestamp.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+              <div className="flex items-center gap-2 mt-3 px-3 text-[10px] font-black text-slate-300 uppercase tracking-widest">
+                {msg.role} • {msg.timestamp.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
               </div>
             </div>
           ))}
-          {isTyping && <div className="p-6 text-[11px] font-black text-orange-800 uppercase tracking-widest animate-pulse">Thinking...</div>}
+          {isTyping && <div className="p-6 text-[11px] font-black text-orange-800 uppercase tracking-widest animate-pulse">Consulting Guides...</div>}
         </main>
 
         <footer className="p-4 md:p-8 bg-white border-t border-orange-100 shrink-0">
@@ -290,8 +289,8 @@ const App: React.FC = () => {
               type="text" 
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
-              placeholder={envKeyExists ? "Ask Fuzzy anything..." : "⚠️ ACTION REQUIRED: Add API_KEY to Vercel"}
-              className="flex-1 bg-slate-50 border-2 border-slate-100 rounded-[2rem] px-8 py-5 focus:outline-none focus:border-orange-600 focus:bg-white font-semibold transition-all shadow-inner"
+              placeholder={envKeyExists ? "Ask Fuzzy anything..." : "⚠️ API KEY MISSING - SEE SIDEBAR"}
+              className={`flex-1 bg-slate-50 border-2 rounded-[2rem] px-8 py-5 focus:outline-none focus:border-orange-600 focus:bg-white font-semibold transition-all shadow-inner ${!envKeyExists ? 'border-red-200 placeholder-red-400' : 'border-slate-100'}`}
               disabled={isTyping}
             />
             <button type="submit" disabled={!inputValue.trim() || isTyping} className="w-16 h-16 bg-orange-700 text-white rounded-3xl font-bold hover:bg-orange-800 shadow-2xl flex items-center justify-center active:scale-90 transition-all">
@@ -302,16 +301,30 @@ const App: React.FC = () => {
       </div>
 
       <aside className="hidden xl:flex w-[420px] flex-col bg-white border-l border-orange-50 p-12 overflow-y-auto shrink-0">
-        <h2 className="text-4xl font-black mb-10 tracking-tighter">Cabin Brief</h2>
+        <h2 className="text-4xl font-black mb-10 tracking-tighter">Stay Brief</h2>
         <div className="space-y-8">
           <MicTester />
+          
+          <div className="glass p-6 rounded-[2rem] border border-orange-100 shadow-sm space-y-4">
+             <h3 className="text-[10px] font-black uppercase text-orange-900/60 tracking-widest">System Diagnostics</h3>
+             <button 
+              onClick={verifyConnection}
+              disabled={isVerifying || !envKeyExists}
+              className="w-full py-3 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+             >
+               {isVerifying ? <i className="fa-solid fa-spinner animate-spin"></i> : <i className="fa-solid fa-bolt"></i>}
+               Verify API Brain
+             </button>
+          </div>
+
           <InfoCard title="Wi-Fi" icon="fa-wifi" value={CABIN_DETAILS.wifiName} description={CABIN_DETAILS.wifiPass} />
           <div className="grid grid-cols-2 gap-5">
             <InfoCard title="In" icon="fa-clock" value={CABIN_DETAILS.checkIn} />
             <InfoCard title="Out" icon="fa-door-open" value={CABIN_DETAILS.checkOut} />
           </div>
+          
           <div className="mt-12 pt-10 border-t border-slate-100">
-            <h3 className="text-[10px] font-black uppercase text-slate-400 mb-8 tracking-widest">Important Rules</h3>
+            <h3 className="text-[10px] font-black uppercase text-slate-400 mb-8 tracking-widest">Guest Rules</h3>
             <ul className="space-y-5">
               {CABIN_DETAILS.rules.map((rule, i) => (
                 <li key={i} className="flex items-start gap-5 text-sm text-slate-600 font-bold leading-relaxed">
