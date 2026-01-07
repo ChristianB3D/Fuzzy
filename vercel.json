@@ -1,9 +1,5 @@
 
 {
-  "version": 2,
-  "cleanUrls": true,
-  "outputDirectory": ".",
-  "framework": null,
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ]
