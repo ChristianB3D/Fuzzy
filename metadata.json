@@ -1,0 +1,7 @@
+{
+  "name": "Fuzzy - Digital Cabin Concierge",
+  "description": "A rustic-chic AI concierge for the Fuzzy Bear Cabin, providing real-time voice assistance for guests regarding logistics, rules, and local recommendations.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
