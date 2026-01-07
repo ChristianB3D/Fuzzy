@@ -31,7 +31,7 @@ CABIN KNOWLEDGE:
 
 GUIDELINES:
 1. Answer concisely and warmly.
-2. If info isn't here, provide the link: https://www.fuzzybearcabin.com/Guest-Guide-2c1da90eda4d80c18bbecc3553c06632
+2. If info isn't here, admit you don't have that specific detail and suggest they contact the host for unique requests.
 3. If there is a serious emergency (fire, flood), tell them to call Barbara at 650-430-0946.
 4. NEVER say "I am having trouble connecting" - if the API is working, you have this info!
 `;
